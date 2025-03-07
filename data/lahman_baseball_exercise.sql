@@ -126,47 +126,54 @@ WHERE wswin = 'Y';
 
 -- 6. Which managers have won the TSN Manager of the Year award in both the National League (NL) and the American League (AL)? 
 -- Give their full name and the teams that they were managing when they won the award.
-	SELECT CONCAT(namefirst, ' ', namelast) AS fullname, m.lgid, awardid, teamid
-	FROM awardsmanagers
-	INNER JOIN people
-	USING (playerid)
-	INNER JOIN salaries
-	USING (playerid)
-	INNER JOIN managers AS m
-	USING (teamid)
-	WHERE m.lgid = 'AL' 
-		AND awardid = 'TSN Manager of the Year';
-
 
 WITH al_tsn_winners AS (
-	SELECT CONCAT(namefirst, ' ', namelast) AS fullname, m.lgid, awardid, teamid
-	FROM awardsmanagers
-	INNER JOIN people
-	USING (playerid)
-	INNER JOIN salaries
-	USING (playerid)
-	INNER JOIN managers AS m
-	USING (teamid)
-	WHERE m.lgid = 'AL' 
-		AND awardid = 'TSN Manager of the Year'
-	),
-nl_tsn_winners AS (
-	SELECT CONCAT(namefirst, ' ', namelast) AS fullname, m.lgid, awardid, teamid
-	FROM awardsmanagers
-	INNER JOIN people
-	USING (playerid)
-	INNER JOIN salaries
-	USING (playerid)
-	INNER JOIN managers AS m
-	USING (teamid)
-	WHERE m.lgid = 'NL'
-		AND awardid = 'TSN Manager of the Year'
-	)
-SELECT DISTINCT fullname, al.teamid AS al_team, nl.teamid AS nl_team
+		SELECT m.yearid, m.playerid, CONCAT(namefirst, ' ', namelast) AS fullname, m.lgid, awardid, teamid
+		FROM managers AS m
+		INNER JOIN people USING (playerid)
+		INNER JOIN awardsmanagers USING(playerid, yearid)
+		WHERE m.lgid = 'AL'
+			AND awardid = 'TSN Manager of the Year'
+		),
+	nl_tsn_winners AS (
+		SELECT m.yearid, m.playerid, CONCAT(namefirst, ' ', namelast) AS fullname, m.lgid, awardid, teamid
+		FROM managers AS m
+		INNER JOIN people USING (playerid)
+		INNER JOIN awardsmanagers USING(playerid, yearid)
+		WHERE m.lgid = 'NL' 
+			AND awardid = 'TSN Manager of the Year'
+		)
+SELECT DISTINCT fullname, playerid, al.teamid AS al_team, nl.teamid AS nl_team
 FROM al_tsn_winners AS al
 INNER JOIN nl_tsn_winners AS nl
-USING(fullname);
+USING(fullname, playerid);
 
+
+SELECT m.yearid, m.playerid, m.lgid, awardid, teamid
+		FROM managers AS m
+		INNER JOIN awardsmanagers USING(playerid, yearid)
+		WHERE playerid = 'coxbo01'
+			AND awardid = 'TSN Manager of the Year';
+
+SELECT DISTINCT a.lgid
+FROM awardsmanagers a
+INNER JOIN managers b
+USING (playerid)
+WHERE awardid = 'TSN Manager of the Year'
+AND playerid = 'coxbo01'
+			
+SELECT m.yearid, m.playerid, m.lgid, awardid, teamid
+		FROM managers AS m
+		INNER JOIN awardsmanagers USING(playerid, yearid)
+		WHERE playerid = 'virdobi01'
+			AND awardid = 'TSN Manager of the Year';
+
+SELECT DISTINCT a.lgid
+FROM awardsmanagers a
+INNER JOIN managers b
+USING (playerid)
+WHERE awardid = 'TSN Manager of the Year'
+AND playerid = 'virdobi01'
 -- 7. Which pitcher was the least efficient in 2016 in terms of salary / strikeouts? Only consider pitchers who started at least 10 games (across all teams). 
 -- Note that pitchers often play for more than one team in a season, so be sure that you are counting all stats for each player.
 
@@ -253,7 +260,11 @@ HAVING COUNT(teamid) > 1;
 -- Report the players' first and last names and the number of home runs they hit in 2016.
 
 WITH player_max_hrs AS (
-	SELECT playerid, CONCAT(namefirst, ' ', namelast) AS fullname, MAX(hr) AS max_hrs, COUNT(DISTINCT yearid) AS num_years_in_league
+	SELECT 
+		playerid, 
+		CONCAT(namefirst, ' ', namelast) AS fullname, 
+		MAX(hr) AS max_hrs, 
+		COUNT(DISTINCT yearid) AS num_years_in_league
 	FROM people
 	INNER JOIN batting
 	USING(playerid)
@@ -277,11 +288,136 @@ ORDER BY hr DESC;
 
 -- Open-ended questions
 
--- Is there any correlation between number of wins and team salary? Use data from 2000 and later to answer this question. As you do this analysis, keep in mind that salaries across the whole league tend to increase together, so you may want to look on a year-by-year basis.
+SELECT *
+FROM salaries;
+
+--SELECT yearid AS year, w AS wins, salary_from_CTE
+--FROM teams
+--INNER JOIN
+
+-- Is there any correlation between number of wins and team salary? 
+-- Use data from 2000 and later to answer this question. As you do this analysis, 
+-- keep in mind that salaries across the whole league tend to increase together, 
+-- so you may want to look on a year-by-year basis.
+
+WITH total_spent AS (
+	SELECT yearid, teamid, SUM(salary) AS total_payroll
+	FROM salaries
+	GROUP BY yearid, teamid
+	ORDER BY yearid
+	)
+SELECT teams.yearid AS year, CORR(w, total_payroll) AS win_total_payroll_correlation
+FROM teams
+INNER JOIN total_spent
+ON teams.yearid = total_spent.yearid AND teams.teamid = total_spent.teamid
+WHERE teams.yearid >= 2000
+GROUP BY teams.yearid
+ORDER BY teams.yearid;
 
 -- In this question, you will explore the connection between number of wins and attendance.
 
 -- a. Does there appear to be any correlation between attendance at home games and number of wins?
--- b. Do teams that win the world series see a boost in attendance the following year? What about teams that made the playoffs? Making the playoffs means either being a division winner or a wild card winner.
 
--- It is thought that since left-handed pitchers are more rare, causing batters to face them less often, that they are more effective. Investigate this claim and present evidence to either support or dispute this claim. First, determine just how rare left-handed pitchers are compared with right-handed pitchers. Are left-handed pitchers more likely to win the Cy Young Award? Are they more likely to make it into the hall of fame?
+SELECT CORR(w, attendance) AS wins_attendance_correlation
+FROM teams; --YES
+
+-- b. Do teams that win the world series see a boost in attendance the following year? 
+-- What about teams that made the playoffs? 
+-- Making the playoffs means either being a division winner or a wild card winner.
+
+SELECT *
+FROM teams;
+
+WITH ws_row_num_teams AS (
+	SELECT yearid, teamid, attendance,
+		ROW_NUMBER() OVER(PARTITION BY teamid ORDER BY yearid) as row_num
+	FROM(
+		WITH ws_winners AS (
+			SELECT yearid, teamid
+			FROM teams
+			WHERE wswin = 'Y'
+			)
+		SELECT teams.yearid, teams.teamid, attendance
+		FROM teams
+		INNER JOIN ws_winners 
+		ON teams.teamid = ws_winners.teamid 
+			AND (teams.yearid = ws_winners.yearid OR teams.yearid = ws_winners.yearid + 1)
+		ORDER BY teamid, yearid
+		)
+	),
+ws_attendance_diff AS (
+	SELECT a.teamid, (b.attendance - a.attendance) AS attendance_diff_year_after_wswin
+	FROM ws_row_num_teams a
+	INNER JOIN ws_row_num_teams b
+	ON a.teamid = b.teamid
+	WHERE a.row_num = 1 AND b.row_num = 2
+	),
+po_row_num_teams AS (
+	SELECT yearid, teamid, attendance,
+		ROW_NUMBER() OVER(PARTITION BY teamid ORDER BY yearid) as row_num
+	FROM(
+		WITH po_teams AS (
+			SELECT yearid, teamid
+			FROM teams
+			WHERE divwin = 'Y' OR wcwin = 'Y'
+			)
+		SELECT teams.yearid, teams.teamid, attendance
+		FROM teams
+		INNER JOIN po_teams 
+		ON teams.teamid = po_teams.teamid 
+			AND (teams.yearid = po_teams.yearid OR teams.yearid = po_teams.yearid + 1)
+		ORDER BY teamid, yearid
+		)
+	),
+po_attendance_diff AS (
+	SELECT a.teamid, (b.attendance - a.attendance) AS attendance_diff_year_after_po
+	FROM po_row_num_teams a
+	INNER JOIN po_row_num_teams b
+	ON a.teamid = b.teamid
+	WHERE a.row_num = 1 AND b.row_num = 2
+	)
+SELECT AVG(attendance_diff_year_after_wswin) AS avg_attendance_incr_year_after_ws_and_playoffs
+FROM ws_attendance_diff
+UNION
+SELECT AVG(attendance_diff_year_after_po) AS avg_attendance_incr_year_after_po
+FROM po_attendance_diff;
+
+
+-- It is thought that since left-handed pitchers are more rare, causing batters to face them less often, that they are more effective. 
+-- Investigate this claim and present evidence to either support or dispute this claim. 
+-- First, determine just how rare left-handed pitchers are compared with right-handed pitchers. 
+-- Are left-handed pitchers more likely to win the Cy Young Award? Are they more likely to make it into the hall of fame?
+
+WITH yearly_pitcher_data AS (
+	SELECT 
+		playerid,
+		CONCAT(namefirst, ' ', namelast) AS fullname, 
+		yearid, 
+		throws,
+		SUM(g) AS games_played, 
+		SUM(SHO) AS shutouts, 
+		SUM(SV) AS saves, 
+		SUM(SO) AS strikeouts,
+		AVG(BAOpp) AS opponents_batting_avg, 
+		AVG(ERA) AS avg_era
+	FROM people
+	INNER JOIN pitching USING(playerid)
+	GROUP BY playerid, yearid, throws
+	ORDER BY playerid
+	),
+yearly_data AS (
+	SELECT
+		throws,
+		COUNT(playerid) AS num_pitchers,
+		AVG(games_played) AS avg_games_played, 
+		AVG(shutouts) AS avg_shutouts, 
+		AVG(saves) AS avg_saves, 
+		AVG(strikeouts) AS avg_strikeouts,
+		AVG(opponents_batting_avg) AS opponents_batting_avg, 
+		AVG(avg_era) AS avg_era
+	FROM yearly_pitcher_data
+	GROUP BY throws
+	ORDER BY throws
+)
+SELECT *
+FROM yearly_data;
